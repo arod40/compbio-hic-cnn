@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import List, Tuple
 
-import hicstraw
+# import hicstraw
 import numpy as np
+import torch
 import torchvision.transforms as T
 from PIL import Image
 from torch.utils.data import Dataset
@@ -121,9 +122,9 @@ class HICPairsBioReplicatesDataset(Dataset):
         img1, img2 = self.all_pairs[index]
         img1, img2 = self.transform(Image.open(img1)), self.transform(Image.open(img2))
         return {
-            "img1": img1,
-            "img2": img2,
-            "label": 0 if index < len(self.negative_pairs) else 1,
+            "input1": img1,
+            "input2": img2,
+            "label": torch.tensor([0 if index < len(self.negative_pairs) else 1], dtype=torch.float32),
         }
 
     def __len__(self):
@@ -131,15 +132,19 @@ class HICPairsBioReplicatesDataset(Dataset):
 
 
 if __name__ == "__main__":
-    # for exp in ["GSM1551552_HIC003", "GSM1551554_HIC005", "GSM1551569_HIC020"]:
-    #     convert_hic_file_to_images(f"../data/{exp}.hic", f"../data/hic_dataset/{exp}")
+    from argparse import ArgumentParser
 
-    dataset = HICPairsBioReplicatesDataset(
-        "../data/hic_dataset",
-        [("GSM1551552_HIC003", "GSM1551554_HIC005")],
-        [("GSM1551552_HIC003", "GSM1551569_HIC020")],
-        None,
-    )
+    parser = ArgumentParser()
+    parser.add_argument("--hic_data_path", type=str, required=True)
+    parser.add_argument("--save_to", type=str, required=True)
+    parser.add_argument("--experiments", type=str, nargs="+", required=True)
+    args = parser.parse_args()
 
-    print(len(dataset.positive_pairs))
-    print(dataset[0])
+    hic_data_path = Path(args.hic_data_path)
+    assert hic_data_path.exists(), f"{hic_data_path} does not exist"
+
+    save_to = Path(args.save_to)
+    save_to.mkdir(parents=True, exist_ok=True)
+
+    for exp in args.experiments:
+        convert_hic_file_to_images(hic_data_path / f"{exp}.hic", save_to / exp)
