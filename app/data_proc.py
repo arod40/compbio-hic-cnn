@@ -61,83 +61,13 @@ def convert_hic_file_to_images(
             )
 
 
-class HICPairsBioReplicatesDataset(Dataset):
-    def __init__(
-        self,
-        root_dir: str,
-        bio_replicates_pairs: List[Tuple[str]],
-        non_bio_replicates_pairs: List[Tuple[str]],
-        chromosomes: List[str],
-    ):
-        self.root_dir = Path(root_dir)
-
-        print("Building positive image pairs")
-        self.positive_pairs = self.__build_image_pairs(
-            bio_replicates_pairs, chromosomes
-        )
-
-        print("Building negative image pairs")
-        self.negative_pairs = self.__build_image_pairs(
-            non_bio_replicates_pairs, chromosomes
-        )
-
-        self.all_pairs = self.negative_pairs + self.positive_pairs
-
-        self.transform = T.Compose(
-            [
-                T.ToTensor(),
-            ]
-        )
-
-    def __build_image_pairs(self, pairs: List[Tuple[str]], chromosomes: List[str]):
-        img_pairs = []
-        for exp1, exp2 in pairs:
-            print(f"Building image pairs for {exp1} and {exp2}")
-
-            dir1, dir2 = Path(self.root_dir / exp1), Path(self.root_dir / exp2)
-            assert dir1.exists() and dir2.exists(), f"{dir1} or {dir2} does not exist"
-
-            if chromosomes is None:
-                chromosomes = set(p.name for p in dir1.iterdir()).intersection(
-                    set(p.name for p in dir2.iterdir())
-                )
-
-            for chr in tqdm(chromosomes):
-
-                chr_dir1, chr_dir2 = dir1 / chr, dir2 / chr
-                assert (
-                    chr_dir1.exists() and chr_dir2.exists()
-                ), f"{chr_dir1} or {chr_dir2} does not exist"
-
-                dir1_imgs, dir2_imgs = set(p.name for p in chr_dir1.iterdir()), set(
-                    p.name for p in chr_dir2.iterdir()
-                )
-
-                for img_name in dir1_imgs.intersection(dir2_imgs):
-                    img_pairs.append((chr_dir1 / img_name, chr_dir2 / img_name))
-
-        return img_pairs
-
-    def __getitem__(self, index):
-        img1, img2 = self.all_pairs[index]
-        img1, img2 = self.transform(Image.open(img1)), self.transform(Image.open(img2))
-        return {
-            "input1": img1,
-            "input2": img2,
-            "label": torch.tensor([0 if index < len(self.negative_pairs) else 1], dtype=torch.float32),
-        }
-
-    def __len__(self):
-        return len(self.all_pairs)
-
-
 if __name__ == "__main__":
     from argparse import ArgumentParser
 
     parser = ArgumentParser()
-    parser.add_argument("--hic_data_path", type=str, required=True)
-    parser.add_argument("--save_to", type=str, required=True)
-    parser.add_argument("--experiments", type=str, nargs="+", required=True)
+    parser.add_argument("-H", "--hic_data_path", type=str, required=True)
+    parser.add_argument("-s", "--save_to", type=str, required=True)
+    parser.add_argument("-E", "--experiments", type=str, nargs="+", required=True)
     args = parser.parse_args()
 
     hic_data_path = Path(args.hic_data_path)
@@ -147,4 +77,6 @@ if __name__ == "__main__":
     save_to.mkdir(parents=True, exist_ok=True)
 
     for exp in args.experiments:
-        convert_hic_file_to_images(hic_data_path / f"{exp}.hic", save_to / exp)
+        convert_hic_file_to_images(
+            str(hic_data_path / f"{exp}.hic"), str(save_to / exp)
+        )
