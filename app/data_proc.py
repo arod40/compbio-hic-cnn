@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import List, Tuple
 
-# import hicstraw
+import hicstraw
 import numpy as np
 import torch
 import torchvision.transforms as T
@@ -68,6 +68,13 @@ if __name__ == "__main__":
     parser.add_argument("-H", "--hic_data_path", type=str, required=True)
     parser.add_argument("-s", "--save_to", type=str, required=True)
     parser.add_argument("-E", "--experiments", type=str, nargs="+", required=True)
+    parser.add_argument("-r", "--resolution", type=int, default=5000)
+    parser.add_argument(
+        "-n",
+        "--normalization",
+        choices=["VC", "VC_SQRT", "KR", "SCALE", "NONE"],
+        default="VC",
+    )
     args = parser.parse_args()
 
     hic_data_path = Path(args.hic_data_path)
@@ -78,5 +85,8 @@ if __name__ == "__main__":
 
     for exp in args.experiments:
         convert_hic_file_to_images(
-            str(hic_data_path / f"{exp}.hic"), str(save_to / exp)
+            str(hic_data_path / f"{exp}.hic"),
+            str(save_to / exp),
+            resolution=args.resolution,
+            hic_normalization=args.normalization,
         )
