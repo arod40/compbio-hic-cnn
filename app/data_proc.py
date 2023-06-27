@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("-H", "--hic_data_path", type=str, required=True)
     parser.add_argument("-s", "--save_to", type=str, required=True)
-    parser.add_argument("-E", "--experiments", type=str, nargs="+", required=True)
+    parser.add_argument("-E", "--experiments", type=str, nargs="+", required=False)
     parser.add_argument("-r", "--resolution", type=int, default=5000)
     parser.add_argument(
         "-n",
@@ -83,7 +83,12 @@ if __name__ == "__main__":
     save_to = Path(args.save_to)
     save_to.mkdir(parents=True, exist_ok=True)
 
-    for exp in args.experiments:
+    experiments = (
+        args.experiments
+        if args.experiments
+        else [f.stem for f in hic_data_path.glob("*.hic")]
+    )
+    for exp in experiments:
         convert_hic_file_to_images(
             str(hic_data_path / f"{exp}.hic"),
             str(save_to / exp),
