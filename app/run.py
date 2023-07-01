@@ -382,12 +382,6 @@ def custom_experiment(
 
 
 if __name__ == "__main__":
-    custom_experiment(
-        "../data/hic_dataset-40x40-5k-VC",
-        "./mmc2.csv",
-        "../checkpoints/test",
-        ["GM12878"],
-        [1, 3, 4, 5, 6],
-        ["GM12878"],
-        [32, 33],
-    )
+    import fire
+
+    fire.Fire(custom_experiment)
