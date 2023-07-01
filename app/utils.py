@@ -5,6 +5,7 @@ from itertools import combinations, product
 import numpy as np
 import pandas as pd
 import torch
+from pandas import read_csv
 from torch.utils.data import ConcatDataset, random_split
 
 
@@ -78,9 +79,11 @@ def get_negative_pairs_from_list_of_bio_replicates(
 
 
 def parse_mmc2_file(mmc2_file_path: str):
-    exp_prefix = "GSM1551607_"
-    data = read_csv(mm2_file_path)
-    data["Library"] = data["Library"].apply(lambda x: exp_prefix + x)
+    pref_base_int = 1551549
+    data = read_csv(mmc2_file_path).dropna()
+    data["Library"] = data["Library"].apply(
+        lambda x: f"GSM{pref_base_int + int(x[-3:])}_{x}"
+    )
     experiment_to_cell_type = dict(zip(data["Library"], data["Cell type"]))
     experiment_to_bio_replicate = dict(
         zip(data["Library"], data["Biological Replicate number"].astype(int))
@@ -189,21 +192,19 @@ def train_loop(
     json.dump(test_metrics, open(save_dir / "test_metrics.json", "w"), indent=4)
 
 
-def get_whole_dataset_split(all_cells_dataset, repro_seed=None):
-    train_size, val_size = int(0.6 * len(all_cells_dataset)), int(
-        0.2 * len(all_cells_dataset)
-    )
-    test_size = len(all_cells_dataset) - train_size - val_size
+def get_whole_dataset_split(dataset, fractions=[0.6, 0.2], repro_seed=None):
+    sizes = [int(f * len(dataset)) for f in fractions]
+    sizes.append(len(dataset) - sum(sizes))
 
     generator = (
         torch.Generator().manual_seed(repro_seed) if repro_seed is not None else None
     )
-    return random_split(
-        all_cells_dataset, [train_size, val_size, test_size], generator=generator
-    )
+    return random_split(dataset, sizes, generator=generator)
 
 
-def get_dataset_split_by_cell_type(datasets_by_cell_type, train_cell_types, test_cell_types, repro_seed=None):
+def get_dataset_split_by_cell_type(
+    datasets_by_cell_type, train_cell_types, test_cell_types, repro_seed=None
+):
     train_dataset = ConcatDataset(
         [datasets_by_cell_type[cell_type] for cell_type in train_cell_types]
     )
@@ -242,15 +243,3 @@ def dump_analytics_to_df(dataset, models, experiment_to_cell_type):
     columns = ["cell_type", "chr", "low", "high", "label"] + [
         model_name for model_name, _, _ in models
     ]
-
-
-# gm12878_only_dataset_train = HICPairsBioReplicatesDataset(
-#     data_path,
-#     get_positive_pairs_from_list_of_bio_replicates(experiment_to_cell_type, experiment_to_bio_replicate, cell_types=["GM12878"], bio_replicates=[1,3,4,5,6]),
-#     get_negative_pairs_from_list_of_bio_replicates(experiment_to_cell_type, experiment_to_bio_replicate, cell_types=["GM12878"], bio_replicates=[1,3,4,5,6]),
-# )
-# gm12878_only_dataset_test = HICPairsBioReplicatesDataset(
-#     data_path,
-#     get_positive_pairs_from_list_of_bio_replicates(experiment_to_cell_type, experiment_to_bio_replicate, cell_types=["GM12878"], bio_replicates=[32,33]),
-#     get_negative_pairs_from_list_of_bio_replicates(experiment_to_cell_type, experiment_to_bio_replicate, cell_types=["GM12878"], bio_replicates=[32,33]),
-# )

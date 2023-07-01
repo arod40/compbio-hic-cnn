@@ -1,11 +1,19 @@
 from datetime import datetime
 from pathlib import Path
+from typing import List
 
 import torch
 from dataset import HICPairsBioReplicatesDataset
 from modeling import *
 from sklearn.metrics import accuracy_score
-from utils import get_whole_dataset_split, train_loop
+from utils import (
+    get_dataset_split_by_cell_type,
+    get_negative_pairs_from_list_of_bio_replicates,
+    get_positive_pairs_from_list_of_bio_replicates,
+    get_whole_dataset_split,
+    parse_mmc2_file,
+    train_loop,
+)
 
 
 def original_allcells_experiment(
@@ -74,7 +82,6 @@ def original_allcells_experiment(
             test_data, batch_size=batch_size, shuffle=True
         )
 
-        models = []
         for name, SiameseNetworkClass in [
             ("resnet", SiameseNetworkResnetEncoder),
             ("lenet", SiameseNetworkLeNetEncoder),
@@ -106,8 +113,6 @@ def original_allcells_experiment(
                 device,
             )
 
-            models.append((name, model))
-
 
 def original_celltype_experiment(
     data_path: str,
@@ -129,8 +134,9 @@ def original_celltype_experiment(
         (["imr90", "hmec", "k562", "kbm7"], ["gm12878"]),
     ]
 
-    checkpoint_dir = Path("../checkpoints/" + exp_name)
+    checkpoint_dir = Path(save_to)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
     criterion = torch.nn.BCELoss()
     eval_metrics = [
         ("loss", lambda x, y: criterion(x, y).item()),
@@ -219,7 +225,144 @@ def original_celltype_experiment(
             optimizer = torch.optim.Adam(model.parameters())
 
             # Create save directory
-            save_dir = checkpoint_dir / f"celltype_{name}-{'-'.join(train_cell_types)}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+            save_dir = (
+                checkpoint_dir
+                / f"celltype_{name}-{'-'.join(train_cell_types)}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+            )
+            save_dir.mkdir(parents=True)
+
+            # Train model
+            train_loop(
+                model,
+                train_loader,
+                val_loader,
+                test_loader,
+                batch_size,
+                num_epochs,
+                criterion,
+                optimizer,
+                eval_metrics,
+                save_dir,
+                device,
+            )
+
+
+def custom_experiment(
+    data_path: str,
+    mmc2_file_path: str,
+    save_to: str,
+    train_cell_types: List[str],
+    train_bio_replicates: List[int],
+    test_cell_types: List[str] = None,
+    test_bio_replicates: List[int] = None,
+    batch_size: int = 800,
+    num_epochs: int = 30,
+    no_exps: int = 3,
+    use_experiments: List[str] = None,
+):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if use_experiments is None:
+        use_experiments = [x.name for x in Path(data_path).iterdir()]
+
+    experiment_to_cell_type, experiment_to_bio_replicate = parse_mmc2_file(
+        mmc2_file_path
+    )
+
+    train_positive_pairs = get_positive_pairs_from_list_of_bio_replicates(
+        experiment_to_cell_type,
+        experiment_to_bio_replicate,
+        cell_types=train_cell_types,
+        bio_replicates=train_bio_replicates,
+        use_experiments=use_experiments,
+    )
+    train_negative_pairs = get_negative_pairs_from_list_of_bio_replicates(
+        experiment_to_cell_type,
+        experiment_to_bio_replicate,
+        cell_types=train_cell_types,
+        bio_replicates=train_bio_replicates,
+        use_experiments=use_experiments,
+    )
+    print(f"Number of train positive pairs: {len(train_positive_pairs)}")
+    print(f"Number of train negative pairs: {len(train_negative_pairs)}")
+
+    train_dataset = HICPairsBioReplicatesDataset(
+        data_path,
+        train_positive_pairs,
+        train_negative_pairs,
+        None,
+    )
+    test_dataset = None
+    if test_cell_types is not None and test_bio_replicates is not None:
+        test_positive_pairs = get_positive_pairs_from_list_of_bio_replicates(
+            experiment_to_cell_type,
+            experiment_to_bio_replicate,
+            cell_types=test_cell_types,
+            bio_replicates=test_bio_replicates,
+            use_experiments=use_experiments,
+        )
+        test_negative_pairs = get_negative_pairs_from_list_of_bio_replicates(
+            experiment_to_cell_type,
+            experiment_to_bio_replicate,
+            cell_types=test_cell_types,
+            bio_replicates=test_bio_replicates,
+            use_experiments=use_experiments,
+        )
+        print(f"Number of test positive pairs: {len(test_positive_pairs)}")
+        print(f"Number of test negative pairs: {len(test_negative_pairs)}")
+
+        test_dataset = HICPairsBioReplicatesDataset(
+            data_path,
+            test_positive_pairs,
+            test_negative_pairs,
+            None,
+        )
+
+    checkpoint_dir = Path(save_to)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    criterion = torch.nn.BCELoss()
+    eval_metrics = [
+        ("loss", lambda x, y: criterion(x, y).item()),
+        ("accuracy", lambda x, y: accuracy_score((x > 0.5).int(), y)),
+    ]
+
+    for exp_no in range(no_exps):
+        # Create data loaders
+        if test_dataset is None:
+            train_data, val_data, test_data = get_whole_dataset_split(
+                train_dataset, fractions=[0.6, 0.2], repro_seed=exp_no
+            )
+        else:
+            train_data, val_data = get_whole_dataset_split(
+                train_dataset, fractions=[0.75], repro_seed=exp_no
+            )
+            test_data = test_dataset
+
+        train_loader = torch.utils.data.DataLoader(
+            train_data, batch_size=batch_size, shuffle=True
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_data, batch_size=batch_size, shuffle=True
+        )
+        test_loader = torch.utils.data.DataLoader(
+            test_data, batch_size=batch_size, shuffle=True
+        )
+
+        for name, SiameseNetworkClass in [
+            ("resnet", SiameseNetworkResnetEncoder),
+            ("lenet", SiameseNetworkLeNetEncoder),
+            ("linear", SiameseNetworkLinearEncoder),
+        ]:
+            # Create model and optimizer instances
+            model = SiameseNetworkClass((40, 40)).to(device)
+            optimizer = torch.optim.Adam(model.parameters())
+
+            # Create save directory
+            save_dir = (
+                checkpoint_dir
+                / f"custom_{name}-{exp_no}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+            )
             save_dir.mkdir(parents=True)
 
             # Train model
@@ -239,12 +382,12 @@ def original_celltype_experiment(
 
 
 if __name__ == "__main__":
-    # import fire
-
-    # fire.Fire(original_allcells_experiment)
-    original_allcells_experiment(
-        "../data/hic_dataset-40x40-5k-VC", "../checkpoints/test"
-    )
-    original_allcells_experiment(
-        "../data/hic_dataset-40x40-5k-VC", "../checkpoints/test"
+    custom_experiment(
+        "../data/hic_dataset-40x40-5k-VC",
+        "./mmc2.csv",
+        "../checkpoints/test",
+        ["GM12878"],
+        [1, 3, 4, 5, 6],
+        ["GM12878"],
+        [32, 33],
     )
