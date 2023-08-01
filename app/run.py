@@ -13,6 +13,7 @@ from utils import (
     get_whole_dataset_split,
     parse_mmc2_file,
     train_loop,
+    dump_analytics_to_df,
 )
 
 
@@ -250,7 +251,8 @@ def original_celltype_experiment(
 def custom_experiment(
     data_path: str,
     mmc2_file_path: str,
-    save_to: str,
+    save_checkpoints_to: str,
+    save_analytics_to: str,
     train_cell_types: List[str],
     train_bio_replicates: List[int],
     test_cell_types: List[str] = None,
@@ -318,8 +320,11 @@ def custom_experiment(
             None,
         )
 
-    checkpoint_dir = Path(save_to)
+    checkpoint_dir = Path(save_checkpoints_to)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    analytics_dir = Path(save_analytics_to)
+    analytics_dir.mkdir(parents=True, exist_ok=True)
 
     criterion = torch.nn.BCELoss()
     eval_metrics = [
@@ -349,6 +354,8 @@ def custom_experiment(
             test_data, batch_size=batch_size, shuffle=True
         )
 
+        models = []
+
         for name, SiameseNetworkClass in [
             ("resnet", SiameseNetworkResnetEncoder),
             ("lenet", SiameseNetworkLeNetEncoder),
@@ -365,6 +372,8 @@ def custom_experiment(
             )
             save_dir.mkdir(parents=True)
 
+            models.append((name, checkpoint_dir, SiameseNetworkClass))
+
             # Train model
             train_loop(
                 model,
@@ -379,6 +388,17 @@ def custom_experiment(
                 save_dir,
                 device,
             )
+
+        train_df = dump_analytics_to_df(
+            train_data, models, experiment_to_cell_type, device
+        )
+        train_df.to_csv(analytics_dir / f"custom_{exp_no}_train.csv", index=False)
+        val_df = dump_analytics_to_df(val_data, models, experiment_to_cell_type, device)
+        val_df.to_csv(analytics_dir / f"custom_{exp_no}_val.csv", index=False)
+        test_df = dump_analytics_to_df(
+            test_data, models, experiment_to_cell_type, device
+        )
+        test_df.to_csv(analytics_dir / f"custom_{exp_no}_test.csv", index=False)
 
 
 if __name__ == "__main__":

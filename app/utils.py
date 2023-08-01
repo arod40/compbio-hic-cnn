@@ -1,12 +1,14 @@
 import json
 from collections import defaultdict
 from itertools import combinations, product
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 from pandas import read_csv
 from torch.utils.data import ConcatDataset, random_split
+from tqdm import tqdm
 
 
 # This set of methods allow to create the list of positive pairs from the list of bio replicates and cell types desired
@@ -229,7 +231,7 @@ def get_best_checkpoint(history):
     return f"epoch_{epoch + 1}.pt"
 
 
-def dump_analytics_to_df(dataset, models, experiment_to_cell_type):
+def dump_analytics_to_df(dataset, models, experiment_to_cell_type, device):
     loaded_models = []
     for _, model_exp, SiameseNetworkXEncoder in models:
         exp = Path(model_exp)
@@ -243,3 +245,28 @@ def dump_analytics_to_df(dataset, models, experiment_to_cell_type):
     columns = ["cell_type", "chr", "low", "high", "label"] + [
         model_name for model_name, _, _ in models
     ]
+
+    rows = []
+    for tuple in tqdm(dataset):
+        input1, input2, label, extra = (
+            tuple["input1"],
+            tuple["input2"],
+            tuple["label"],
+            tuple["extra1"],
+        )
+        row = [
+            experiment_to_cell_type[extra["experiment"]],
+            extra["chr"],
+            extra["window"][0],
+            extra["window"][1],
+            int(label.item()),
+        ]
+
+        input1, input2 = input1.unsqueeze(0).to(device), input2.unsqueeze(0).to(device)
+        for model in loaded_models:
+            prediction = int(model(input1, input2) > 0.5)
+            row.append(prediction)
+
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=columns)
