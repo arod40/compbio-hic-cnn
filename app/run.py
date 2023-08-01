@@ -372,7 +372,7 @@ def custom_experiment(
             )
             save_dir.mkdir(parents=True)
 
-            models.append((name, checkpoint_dir, SiameseNetworkClass))
+            models.append((name, save_dir, SiameseNetworkClass))
 
             # Train model
             train_loop(
